@@ -1,3 +1,6 @@
+export function inspectionRows(cols, rows, target, partial=false) {
+  return partial ? Math.ceil(target/cols) : rows;
+}
 // All counting operates on individual grid cells, including touching vacancies.
 export function activeCell(row, col, cols, rows, target, side = 'left') {
   const fromBottom = rows - 1 - row;
@@ -45,7 +48,7 @@ function median(a){const b=[...a].sort((x,y)=>x-y);return b[Math.floor(b.length/
 function chroma(r,g,b){const sum=Math.max(1,r+g+b);return [(r-g)/sum,(b-g)/sum];}
 function background(image){const values=[[],[]];const {width,height,data}=image;const step=Math.max(1,Math.floor(Math.max(width,height)/200));for(let y=0;y<height;y+=step)for(let x=0;x<width;x+=step){if(x>width*.015&&x<width*.985&&y>height*.015&&y<height*.985)continue;const i=(y*width+x)*4,c=chroma(data[i],data[i+1],data[i+2]);values[0].push(c[0]);values[1].push(c[1]);}return values.map(median);}
 function robustFit(points){let line=fit(points);for(let pass=0;pass<3;pass++){const errors=points.map(p=>p[1]-line[0]*p[0]-line[1]),center=median(errors),mad=median(errors.map(v=>Math.abs(v-center)));const kept=points.filter((p,i)=>Math.abs(errors[i]-center)<Math.max(2,3*mad));if(kept.length<8)break;line=fit(kept);}return line;}
-export function findSheet(image) {
+export function findSheet(image, options={}) {
   const {data,width,height}=image,step=Math.max(1,Math.floor(Math.max(width,height)/650));
   const sw=Math.ceil(width/step),sh=Math.ceil(height/step),features=new Float32Array(sw*sh),values=[];
   const bg=background(image),bgGreen=-(bg[0]+bg[1])/2;
@@ -65,12 +68,20 @@ export function findSheet(image) {
   if(rr.length<8||cc.length<8)throw new Error('배열 경계를 확인할 수 없습니다. 모서리를 직접 지정하세요.');
   const left=robustFit(rr.map(([y,p])=>[y,p[0]-step/2])),right=robustFit(rr.map(([y,p])=>[y,p[1]+step/2])),top=robustFit(cc.map(([x,p])=>[x,p[0]-step/2])),bottom=robustFit(cc.map(([x,p])=>[x,p[1]+step/2]));
   const intersect=(v,h)=>{const x=(v[0]*h[1]+v[1])/(1-v[0]*h[0]);return {x:Math.max(0,Math.min(width-1,x)),y:Math.max(0,Math.min(height-1,h[0]*x+h[1]))};};
-  const corners=[intersect(left,top),intersect(right,top),intersect(right,bottom),intersect(left,bottom)];
+  let topBoundary=top;
+  if(options.partial && options.target%options.cols){
+    // The top partial row has a step-shaped outline. Fit its outer grid edge parallel
+    // to the bottom instead of fitting a diagonal across full and partial row tops.
+    const edge=Math.min(...[...cols].map(([x,p])=>p[0]-bottom[0]*x))-step/2;
+    topBoundary=[bottom[0],edge];
+  }
+  const corners=[intersect(left,topBoundary),intersect(right,topBoundary),intersect(right,bottom),intersect(left,bottom)];
   if(!validCorners(corners,width,height))throw new Error('검사 영역이 불안정합니다. 모서리를 직접 지정하세요.');
   return corners;
 }
 export function sampleColor(image,p,radius=2){const colors=[[],[]];for(let y=Math.max(0,Math.round(p.y)-radius);y<=Math.min(image.height-1,Math.round(p.y)+radius);y++)for(let x=Math.max(0,Math.round(p.x)-radius);x<=Math.min(image.width-1,Math.round(p.x)+radius);x++){const i=(y*image.width+x)*4,c=chroma(image.data[i],image.data[i+1],image.data[i+2]);colors[0].push(c[0]);colors[1].push(c[1]);}return colors.map(median);}
-export function analyze(image,corners,{cols,rows,target,side,threshold=0,references=null}) {
+export function analyze(image,corners,{cols,rows,target,side,threshold=0,references=null,partial=false}) {
+  rows=inspectionRows(cols,rows,target,partial);
   if(!validCorners(corners,image.width,image.height))throw new Error('검사 영역의 모서리를 확인하세요.');
   const map=projector(corners),cells=[];
   for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){

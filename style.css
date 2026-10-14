@@ -3,3 +3,5 @@
 @media(max-width:420px){aside{display:block}aside .card{margin-bottom:14px}.segments button{white-space:nowrap}.result>div{gap:10px}.brand small{font-size:11px}}
 
 .colorButtons{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}.colorButtons button{flex:1;font-size:12px;padding:8px;white-space:nowrap}
+
+.cameraFrame{overflow:hidden;border-radius:10px;background:#123b50;margin-top:16px}.cameraFrame video{width:100%;height:100%;max-height:none;margin:0;object-fit:contain;transform-origin:center}.cameraControls{padding:8px 12px;background:#f4f8f9;border-radius:8px;margin:8px 0}.cameraControls input{width:100%}.shotActions{display:flex;gap:10px;margin:12px 0}.shotActions button{flex:1}.workspace>.result{min-width:0;margin:0 0 18px}.result>div{justify-content:space-between}
