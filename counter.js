@@ -31,7 +31,7 @@ export function projector(corners) {
     matrix.push([0,0,0,u,v,1,-u*y,-v*y]); values.push(y);
   });
   const h = solve(matrix, values);
-  return (u,v) => { const d = h[6]*u+h[7]*v+1; return {x:(h[0]*u+h[1]*v+h[2])/d,y:(h[3]*u+h[4]*v+h[5])/d}; };
+  return (u,v) => { if(corners.adjust){const q=corners.adjust(u,v);u=q.u;v=q.v;} const d = h[6]*u+h[7]*v+1; return {x:(h[0]*u+h[1]*v+h[2])/d,y:(h[3]*u+h[4]*v+h[5])/d}; };
 }
 export function validCorners(corners, width, height) {
   if (corners.length !== 4 || corners.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<0||p.y<0||p.x>width||p.y>height)) return false;
@@ -53,14 +53,20 @@ export function findSheet(image, options={}) {
   const sw=Math.ceil(width/step),sh=Math.ceil(height/step),features=new Float32Array(sw*sh),values=[];
   const bg=background(image),bgGreen=-(bg[0]+bg[1])/2;
   for(let y=0;y<sh;y++)for(let x=0;x<sw;x++){const i=(Math.min(height-1,y*step)*width+Math.min(width-1,x*step))*4,c=chroma(data[i],data[i+1],data[i+2]),green=-(c[0]+c[1])/2;features[y*sw+x]=green;if(x>sw*.15&&x<sw*.85&&y>sh*.15&&y<sh*.85)values.push(green);}
-  values.sort((a,b)=>a-b);const sheetGreen=values[Math.floor(values.length*.7)],contrast=sheetGreen-bgGreen;
+  values.sort((a,b)=>a-b);const sheetGreen=values[Math.floor(values.length*(options.partial?.95:.7))],contrast=sheetGreen-bgGreen;
   if(contrast<.012)throw new Error('Sheet와 테이프의 색상 차이가 작습니다. 모서리를 직접 지정하세요.');
   const cutoff=bgGreen+contrast*.48,mask=new Uint8Array(sw*sh);
   // Local averaging bridges narrow grid lines instead of collecting sparse green pixels.
   const integral=new Float64Array((sw+1)*(sh+1));for(let y=0;y<sh;y++){let sum=0;for(let x=0;x<sw;x++){sum+=features[y*sw+x];integral[(y+1)*(sw+1)+x+1]=integral[y*(sw+1)+x+1]+sum;}}
   for(let y=0;y<sh;y++)for(let x=0;x<sw;x++){const a=Math.max(0,x-2),b=Math.min(sw,x+3),c=Math.max(0,y-2),d=Math.min(sh,y+3);const mean=(integral[d*(sw+1)+b]-integral[c*(sw+1)+b]-integral[d*(sw+1)+a]+integral[c*(sw+1)+a])/((b-a)*(d-c));mask[y*sw+x]=mean>cutoff?1:0;}
+  if(options.partial&&options.bridgeSeams){
+    // Bridge short grid seams so separated Chip islands share one outer boundary.
+    for(let y=0;y<sh;y++){let last=-10;for(let x=0;x<sw;x++)if(mask[y*sw+x]){if(x-last<=5)for(let k=last+1;k<x;k++)mask[y*sw+k]=1;last=x;}}
+    for(let x=0;x<sw;x++){let last=-10;for(let y=0;y<sh;y++)if(mask[y*sw+x]){if(y-last<=5)for(let k=last+1;k<y;k++)mask[k*sw+x]=1;last=y;}}
+  }
   // Keep one contiguous Sheet; background speckles must not determine its corners.
   let biggest=[];const seen=new Uint8Array(sw*sh);for(let n=0;n<mask.length;n++){if(!mask[n]||seen[n])continue;const queue=[n];seen[n]=1;for(let q=0;q<queue.length;q++){const v=queue[q],x=v%sw,y=Math.floor(v/sw);for(const k of [x>0?v-1:-1,x<sw-1?v+1:-1,y>0?v-sw:-1,y<sh-1?v+sw:-1])if(k>=0&&mask[k]&&!seen[k]){seen[k]=1;queue.push(k);}}if(queue.length>biggest.length)biggest=queue;}
+  if(biggest.length<sw*sh*.04&&options.partial&&!options.bridgeSeams)return findSheet(image,{...options,bridgeSeams:true});
   if(biggest.length<sw*sh*.04)throw new Error('Sheet 전체 영역을 찾지 못했습니다. 모서리를 직접 지정하세요.');
   const rows=new Map(),cols=new Map();for(const n of biggest){const x=(n%sw)*step,y=Math.floor(n/sw)*step;const r=rows.get(y)||[Infinity,-Infinity],c=cols.get(x)||[Infinity,-Infinity];r[0]=Math.min(r[0],x);r[1]=Math.max(r[1],x);c[0]=Math.min(c[0],y);c[1]=Math.max(c[1],y);rows.set(y,r);cols.set(x,c);}
   const xs=[...cols.keys()].sort((a,b)=>a-b),ys=[...rows.keys()].sort((a,b)=>a-b),x0=xs[0],x1=xs.at(-1),y0=ys[0],y1=ys.at(-1);
@@ -92,7 +98,23 @@ export function refinePartialGrid(image,corners,options){
     return best>.003&&best-base>.001?[start,end]:[0,1];
   }
   const [u0,u1]=axisFit(profile('x',cols),cols,false),[v0,v1]=axisFit(profile('y',rows),rows,true),found=[map(u0,v0),map(u1,v0),map(u1,v1),map(u0,v1)];
-  return validCorners(found,image.width,image.height)?found:corners;
+  return validCorners(found,image.width,image.height)?alignPartialMesh(image,found,cols,rows):corners;
+}
+function alignPartialMesh(image,corners,cols,rows){
+  if(cols<8||rows<4)return corners;
+  const map=projector(corners),feature=(u,v)=>{const p=map(u,v),x=Math.max(0,Math.min(image.width-1,Math.round(p.x))),y=Math.max(0,Math.min(image.height-1,Math.round(p.y))),i=(y*image.width+x)*4;return -chroma(image.data[i],image.data[i+1],image.data[i+2])[1];};
+  const interpolate=(a,t)=>{const q=Math.max(0,Math.min(a.length-1,t*a.length-.5)),k=Math.floor(q);return a[k]*(1-q+k)+a[Math.min(k+1,a.length-1)]*(q-k);};
+  const xOffsets=[],yOffsets=[];
+  const xEnds=[];
+  for(let band=0;band<7;band++){const r=Math.max(1,Math.min(rows-2,Math.floor((band+.5)/7*rows)));let best=-Infinity,start=0,end=0;
+    for(let a=-.6;a<=.601;a+=.1)for(let b=-.6;b<=.601;b+=.1){let score=0;const x=u=>u*(1+(b-a)/cols)+a/cols;for(let c=1;c<cols-1;c++)for(let dr=-.2;dr<=.201;dr+=.2){const v=(r+.5+dr)/rows;score+=feature(x((c+.5)/cols),v)-(feature(x((c+.03)/cols),v)+feature(x((c+.97)/cols),v))/2;}score=score/((cols-2)*3)-.005*(a*a+b*b);if(score>best){best=score;start=a/cols;end=b/cols;}}xOffsets.push(best>.008?start:0);xEnds.push(best>.008?end:0);
+  }
+  const xAdjust=(u,v)=>u+(1-u)*interpolate(xOffsets,v)+u*interpolate(xEnds,v);
+  for(let band=0;band<13;band++){const c=Math.max(1,Math.min(cols-2,Math.floor((band+.5)/13*cols)));let best=-Infinity,shift=0;
+    for(let offset=-.55;offset<=.551;offset+=.025){let score=0;for(let r=1;r<rows-1;r++)for(let dc=-.15;dc<=.151;dc+=.15){const v=(r+.5+offset)/rows,u=xAdjust((c+.5+dc)/cols,v);score+=feature(u,v)-(feature(u,(r+.03+offset)/rows)+feature(u,(r+.97+offset)/rows))/2;}score=score/((rows-2)*3)-.01*offset*offset;if(score>best){best=score;shift=offset/rows;}}yOffsets.push(best>.008?shift:0);
+  }
+  corners.adjust=(u,v)=>({u:xAdjust(u,v),v:v+interpolate(yOffsets,u)});
+  return corners;
 }
 function partialBackground(image,corners,cols,rows,occupied){
   const map=projector(corners),samples=[];
@@ -108,8 +130,8 @@ export function analyze(image,corners,{cols,rows,target,side,threshold=0,referen
   const map=projector(corners),cells=[];
   for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
     const active=activeCell(row,col,cols,rows,target,side),samples=[[],[]];
-    if(active)for(let sy=0;sy<5;sy++)for(let sx=0;sx<5;sx++){const p=map((col+.3+sx*.1)/cols,(row+.3+sy*.1)/rows),x=Math.min(image.width-1,Math.max(0,Math.round(p.x))),y=Math.min(image.height-1,Math.max(0,Math.round(p.y))),i=(y*image.width+x)*4,c=chroma(image.data[i],image.data[i+1],image.data[i+2]);samples[0].push(c[0]);samples[1].push(c[1]);}
-    cells.push({row,col,active,color:active?samples.map(median):null,state:active?'unsure':'excluded',manual:false});
+    if(active)for(let sy=0;sy<5;sy++)for(let sx=0;sx<5;sx++){const p=map((col+(partial?.4:.3)+sx*(partial?.05:.1))/cols,(row+(partial?.4:.3)+sy*(partial?.05:.1))/rows),x=Math.min(image.width-1,Math.max(0,Math.round(p.x))),y=Math.min(image.height-1,Math.max(0,Math.round(p.y))),i=(y*image.width+x)*4,c=chroma(image.data[i],image.data[i+1],image.data[i+2]);samples[0].push(c[0]);samples[1].push(c[1]);}
+    cells.push({row,col,active,color:active?samples.map(values=>partial?[...values].sort((a,b)=>a-b)[Math.floor(values.length*.25)]:median(values)):null,state:active?'unsure':'excluded',manual:false});
   }
   const active=cells.filter(c=>c.active);
   let occupied=references?.occupied||[0,1].map(i=>median(active.map(c=>c.color[i])));
@@ -120,7 +142,9 @@ export function analyze(image,corners,{cols,rows,target,side,threshold=0,referen
   const delta=empty.map((v,i)=>v-occupied[i]),distance=delta[0]**2+delta[1]**2;
   // A uniform blue target can contain zero Chips; use the green chroma direction to detect this.
   const uniformBlue=!references&&distance<.0002&&occupied[1]>.025;
-  for(const cell of active){const score=distance>.0002?((cell.color[0]-occupied[0])*delta[0]+(cell.color[1]-occupied[1])*delta[1])/distance:uniformBlue?1:0;
+  for(const cell of active){let reference=occupied,cellDelta=delta,cellDistance=distance;
+    if(partial&&!references?.occupied){const nearby=active.filter(c=>Math.abs(c.row-cell.row)<=4&&Math.abs(c.col-cell.col)<=5&&c.color[1]<empty[1]-.035);if(nearby.length>=8){reference=[0,1].map(i=>median(nearby.map(c=>c.color[i])));cellDelta=empty.map((v,i)=>v-reference[i]);cellDistance=cellDelta[0]**2+cellDelta[1]**2;}}
+    const score=cellDistance>.0002?((cell.color[0]-reference[0])*cellDelta[0]+(cell.color[1]-reference[1])*cellDelta[1])/cellDistance:uniformBlue?1:0;
     cell.score=score;cell.candidateEmpty=score>=.5+threshold;
     const relativeColorReliable=partial&&distance>.001&&empty[1]>occupied[1]+.02;
     const neutral=Math.abs(cell.color[1])<.008&&!relativeColorReliable;
