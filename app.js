@@ -4,6 +4,7 @@ const canvas=$('canvas'),ctx=canvas.getContext('2d'),source=document.createEleme
 let image=null,corners=null,cells=[],stream=null,side='left',calibration=null,modelData={},currentProfile='',region=null;
 const storageKey='chip-counter-profiles-v1';
 try{modelData=JSON.parse(localStorage.getItem(storageKey)||'{}');if(!modelData||typeof modelData!=='object'||Array.isArray(modelData))modelData={};}catch{modelData={};}
+modelData=Object.assign(Object.create(null),modelData);
 function status(text,error=false){$('status').textContent=text;$('status').classList.toggle('error',error);}
 function profileList(){const selected=$('profiles').value;$('profiles').replaceChildren(new Option('새 기종',''));Object.keys(modelData).forEach(name=>$('profiles').add(new Option(name,name)));$('profiles').value=selected;}
 profileList();
