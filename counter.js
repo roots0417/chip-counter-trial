@@ -80,6 +80,28 @@ export function findSheet(image, options={}) {
   return corners;
 }
 export function sampleColor(image,p,radius=2){const colors=[[],[]];for(let y=Math.max(0,Math.round(p.y)-radius);y<=Math.min(image.height-1,Math.round(p.y)+radius);y++)for(let x=Math.max(0,Math.round(p.x)-radius);x<=Math.min(image.width-1,Math.round(p.x)+radius);x++){const i=(y*image.width+x)*4,c=chroma(image.data[i],image.data[i+1],image.data[i+2]);colors[0].push(c[0]);colors[1].push(c[1]);}return colors.map(median);}
+// Refine only automatically detected partial grids. A periodic center-vs-seam
+// response avoids moving the grid just to turn blue vacancies into occupied cells.
+export function refinePartialGrid(image,corners,options){
+  const cols=options.cols,rows=inspectionRows(cols,options.rows,options.target,true),map=projector(corners);
+  function profile(axis,count){const values=[];for(let i=0;i<count*12;i++){let sum=0;for(let j=0;j<48;j++){const t=(i+.5)/(count*12),other=.08+.84*(j+.5)/48,p=axis==='x'?map(t,other):map(other,t);const x=Math.max(0,Math.min(image.width-1,Math.round(p.x))),y=Math.max(0,Math.min(image.height-1,Math.round(p.y))),n=(y*image.width+x)*4,c=chroma(image.data[n],image.data[n+1],image.data[n+2]);sum-=c[1];}values.push(sum/48);}return values;}
+  function axisFit(values,count,isVertical){if(count<3)return [0,1];const at=t=>{const x=Math.max(0,Math.min(values.length-1,t*values.length-.5)),i=Math.floor(x),f=x-i;return values[i]*(1-f)+values[Math.min(i+1,values.length-1)]*f;};
+    const score=(a,b)=>{let sum=0;for(let k=1;k<count-1;k++){const start=a+(b-a)*k/count,pitch=(b-a)/count;sum+=(at(start+pitch*.42)+at(start+pitch*.58))/2-(at(start+pitch*.015)+at(start+pitch*.985))/2;}return sum/(count-2);};
+    let best=score(0,1),start=0,end=1;const base=best;
+    for(let a=isVertical?-1.2:-.5;a<=(isVertical?.45:.5)+.001;a+=.075)for(let b=-.3;b<=.3+.001;b+=.075){const left=a/count,right=1+b/count,sc=score(left,right);if(sc>best){best=sc;start=left;end=right;}}
+    return best>.003&&best-base>.001?[start,end]:[0,1];
+  }
+  const [u0,u1]=axisFit(profile('x',cols),cols,false),[v0,v1]=axisFit(profile('y',rows),rows,true),found=[map(u0,v0),map(u1,v0),map(u1,v1),map(u0,v1)];
+  return validCorners(found,image.width,image.height)?found:corners;
+}
+function partialBackground(image,corners,cols,rows,occupied){
+  const map=projector(corners),samples=[];
+  for(let k=0;k<24;k++){const t=(k+.5)/24;for(const [u,v] of [[t,-.8/rows],[t,1+.8/rows],[-.8/cols,t],[1+.8/cols,t]]){const p=map(u,v);if(p.x<2||p.y<2||p.x>=image.width-2||p.y>=image.height-2)continue;const c=sampleColor(image,p,2);if(c[1]>.015&&c[1]>occupied[1]+.02)samples.push(c);}}
+  if(samples.length<8)return background(image);
+  // Prefer a consistent blue tape color near the Sheet over remote paper/table edges.
+  const center=[0,1].map(i=>median(samples.map(c=>c[i]))),kept=samples.filter(c=>Math.hypot(c[0]-center[0],c[1]-center[1])<.08);
+  return kept.length>=6?[0,1].map(i=>median(kept.map(c=>c[i]))):center;
+}
 export function analyze(image,corners,{cols,rows,target,side,threshold=0,references=null,partial=false}) {
   rows=inspectionRows(cols,rows,target,partial);
   if(!validCorners(corners,image.width,image.height))throw new Error('검사 영역의 모서리를 확인하세요.');
@@ -89,13 +111,19 @@ export function analyze(image,corners,{cols,rows,target,side,threshold=0,referen
     if(active)for(let sy=0;sy<5;sy++)for(let sx=0;sx<5;sx++){const p=map((col+.3+sx*.1)/cols,(row+.3+sy*.1)/rows),x=Math.min(image.width-1,Math.max(0,Math.round(p.x))),y=Math.min(image.height-1,Math.max(0,Math.round(p.y))),i=(y*image.width+x)*4,c=chroma(image.data[i],image.data[i+1],image.data[i+2]);samples[0].push(c[0]);samples[1].push(c[1]);}
     cells.push({row,col,active,color:active?samples.map(median):null,state:active?'unsure':'excluded',manual:false});
   }
-  const active=cells.filter(c=>c.active),occupied=references?.occupied||[0,1].map(i=>median(active.map(c=>c.color[i]))),empty=references?.empty||background(image);
+  const active=cells.filter(c=>c.active);
+  let occupied=references?.occupied||[0,1].map(i=>median(active.map(c=>c.color[i])));
+  const seed=partial?active.reduce((best,c)=>c.color[1]<best[1]?c.color:best,occupied):occupied;
+  const empty=references?.empty||(partial?partialBackground(image,corners,cols,rows,seed):background(image));
+  if(partial&&!references?.occupied){const candidates=active.filter(c=>c.color[1]<empty[1]-.035);if(candidates.length)occupied=[0,1].map(i=>median(candidates.map(c=>c.color[i])));}
+
   const delta=empty.map((v,i)=>v-occupied[i]),distance=delta[0]**2+delta[1]**2;
   // A uniform blue target can contain zero Chips; use the green chroma direction to detect this.
   const uniformBlue=!references&&distance<.0002&&occupied[1]>.025;
   for(const cell of active){const score=distance>.0002?((cell.color[0]-occupied[0])*delta[0]+(cell.color[1]-occupied[1])*delta[1])/distance:uniformBlue?1:0;
     cell.score=score;cell.candidateEmpty=score>=.5+threshold;
-    const neutral=Math.abs(cell.color[1])<.008;
+    const relativeColorReliable=partial&&distance>.001&&empty[1]>occupied[1]+.02;
+    const neutral=Math.abs(cell.color[1])<.008&&!relativeColorReliable;
     cell.state=neutral&&!references?'unsure':score>.5+threshold+.12?'empty':score<.5+threshold-.12?'occupied':'unsure';
   }
   return cells;
@@ -103,4 +131,22 @@ export function analyze(image,corners,{cols,rows,target,side,threshold=0,referen
 export function summarize(cells) {
   const active=cells.filter(c=>c.active),empty=active.filter(c=>c.state==='empty').length,unsure=active.filter(c=>c.state==='unsure').length;
   return {target:active.length,empty,unsure,chips:active.length-empty,minChips:active.length-empty-unsure,maxChips:active.length-empty};
+}
+
+export function estimatePartialArray(image,corners,{cols,rows:maximumRows,side='left'}){
+  const map=projector(corners),width=(Math.hypot(corners[1].x-corners[0].x,corners[1].y-corners[0].y)+Math.hypot(corners[2].x-corners[3].x,corners[2].y-corners[3].y))/2,height=(Math.hypot(corners[3].x-corners[0].x,corners[3].y-corners[0].y)+Math.hypot(corners[2].x-corners[1].x,corners[2].y-corners[1].y))/2;
+  const approximateRows=Math.max(1,Math.min(maximumRows,height/width*cols)),length=Math.max(400,maximumRows*12),profile=[];
+  for(let i=0;i<length;i++){let sum=0;for(let j=0;j<48;j++){const p=map(.05+.9*(j+.5)/48,(i+.5)/length),c=sampleColor(image,p,0);sum-=c[1];}profile.push(sum/48);}
+  const expected=length/approximateRows,window=Math.max(3,Math.round(expected*2)),detrended=profile.map((v,i)=>{let sum=0,count=0;for(let j=Math.max(0,i-window);j<=Math.min(length-1,i+window);j++){sum+=profile[j];count++;}return v-sum/count;});
+  const minLag=Math.max(3,Math.floor(expected*.65)),maxLag=Math.min(Math.floor(length/3),Math.ceil(expected*1.45)),scores=[];
+  for(let lag=minLag;lag<=maxLag;lag++){let xy=0,xx=0,yy=0;for(let i=Math.ceil(expected);i<length-lag-Math.ceil(expected);i++){const a=detrended[i],b=detrended[i+lag];xy+=a*b;xx+=a*a;yy+=b*b;}scores.push({lag,score:xy/Math.max(1e-12,Math.sqrt(xx*yy))});}
+  let peak=null;for(let i=1;i<scores.length-1;i++){const p=scores[i];if(p.score>.3&&p.score>scores[i-1].score&&p.score>=scores[i+1].score&&(!peak||p.score>peak.score))peak=p;}
+  if(!peak)throw new Error('사진에서 줄 간격을 확실히 찾지 못했습니다. 검사 자리 수를 직접 입력하거나 모서리를 다시 지정하세요.');
+  const count=Math.max(1,Math.min(maximumRows,Math.round(length/peak.lag))),colors=[];
+  for(let col=0;col<cols;col++)colors.push(sampleColor(image,map((col+.5)/cols,.5/count),1));
+  // Outer blue tape and an edge vacancy may look identical: never apply this estimate silently.
+  const seed=colors.reduce((best,c)=>c[1]<best[1]?c:best,colors[0]),tape=partialBackground(image,corners,cols,count,seed);
+  const present=colors.map((c,i)=>({c,i})).filter(p=>p.c[1]<tape[1]-.035);
+  const last=present.length?(side==='left'?Math.max(...present.map(p=>p.i))+1:cols-Math.min(...present.map(p=>p.i))):cols;
+  return {rows:count,lastSlots:last,target:(count-1)*cols+last,edgeUncertain:!present.length,periodScore:peak.score};
 }
