@@ -1,5 +1,5 @@
-import {setupTrace} from './trace.js?v=9';
-import {analyze,findSheet,projector,validCorners,summarize,sampleColor,inspectionRows,refinePartialGrid} from './counter.js?v=9';
+import {setupTrace} from './trace.js?v=10';
+import {analyze,findSheet,projector,validCorners,summarize,sampleColor,inspectionRows,refinePartialGrid} from './counter.js?v=10';
 const $=id=>document.getElementById(id),fmt=n=>n.toLocaleString('ko-KR');
 const canvas=$('canvas'),ctx=canvas.getContext('2d'),source=document.createElement('canvas'),sourceCtx=source.getContext('2d',{willReadFrequently:true});
 let trace=null,photoSheet=null,measuredAt=null,analysisKey='';
@@ -29,7 +29,7 @@ function copyFrame(element,width,height,autoCount=true){sourceZoom=element===$('
 let cameraDevices=[],cameraBusy=false;
 let preferredCamera='';try{preferredCamera=localStorage.getItem('chip-counter-camera')||'';}catch{}
 function reviewMode(review){document.body.classList.toggle('livePreview',!!stream&&!review);$('preview').hidden=!stream||!review;}
-function cameraButtons(){ $('camera').disabled=cameraBusy;$('cameraSelect').disabled=cameraBusy||!cameraDevices.length;$('switchCamera').disabled=cameraBusy||cameraDevices.length<2;$('capture').disabled=cameraBusy||!stream||!!trace?.scanning;}
+function cameraButtons(){ $('camera').disabled=cameraBusy;$('cameraSelect').disabled=cameraBusy||!cameraDevices.length;$('switchCamera').disabled=cameraBusy||cameraDevices.length<2;$('capture').disabled=cameraBusy||!stream||!!trace?.blocked;}
 async function refreshCameras(){if(!navigator.mediaDevices?.enumerateDevices)return;cameraDevices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');const current=stream?.getVideoTracks()[0]?.getSettings().deviceId||preferredCamera;$('cameraSelect').replaceChildren(...(cameraDevices.length?cameraDevices.map((d,i)=>new Option(d.label||`카메라 ${i+1}`,d.deviceId)):[new Option('카메라 선택','')]));if(cameraDevices.some(d=>d.deviceId===current))$('cameraSelect').value=current;cameraButtons();}
 function stopCamera(){trace?.stopScan();if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$('video').srcObject=null;$('video').hidden=true;$('cameraFrame').hidden=true;$('cameraControls').hidden=true;$('camera').textContent='카메라 켜기';reviewMode(true);cameraButtons();}
 async function openCamera(deviceId='',autoRear=true){if(cameraBusy)return;cameraBusy=true;stopCamera();cameraButtons();try{
@@ -41,14 +41,14 @@ async function openCamera(deviceId='',autoRear=true){if(cameraBusy)return;camera
   $('video').srcObject=stream;$('video').hidden=false;$('cameraFrame').hidden=false;$('cameraControls').hidden=false;await $('video').play();zoomTask=Promise.resolve();setupCameraZoom();$('camera').textContent='카메라 끄기';reviewMode(false);await refreshCameras();
   preferredCamera=stream.getVideoTracks()[0].getSettings().deviceId||'';try{localStorage.setItem('chip-counter-camera',preferredCamera);}catch{}
   status('카메라를 확인하세요. 전면 영상이면 카메라 선택 또는 전환으로 후면 카메라를 선택하세요.');
-}catch(e){stopCamera();status(`카메라를 열지 못했습니다 (${e.name}). Windows·Chrome 카메라 권한과 다른 앱의 사용 여부를 확인하세요.`,true);}finally{cameraBusy=false;cameraButtons();}}
+}catch(e){stopCamera();status(`카메라를 열지 못했습니다 (${e.name}). Windows·Chrome 카메라 권한과 다른 앱의 사용 여부를 확인하세요.`,true);}finally{cameraBusy=false;cameraButtons();if(stream)trace?.startAuto();}}
 $('camera').onclick=()=>{if(stream){stopCamera();status('카메라를 껐습니다.');return;}if(!navigator.mediaDevices?.getUserMedia){status('카메라는 HTTPS 주소에서 열어야 합니다.',true);return;}openCamera(preferredCamera);};
 $('cameraSelect').onchange=()=>openCamera($('cameraSelect').value,false);
 $('switchCamera').onclick=()=>{const current=stream?.getVideoTracks()[0]?.getSettings().deviceId||$('cameraSelect').value;const index=cameraDevices.findIndex(d=>d.deviceId===current);if(cameraDevices.length>1)openCamera(cameraDevices[(index+1)%cameraDevices.length].deviceId,false);};
 $('preview').onclick=()=>reviewMode(false);
 navigator.mediaDevices?.addEventListener?.('devicechange',()=>refreshCameras().catch(()=>{}));
 refreshCameras().catch(()=>{});
-$('capture').onclick=async()=>{if(trace?.scanning)return;await zoomTask;const v=$('video');if(!v.videoWidth){status('카메라 영상이 준비되지 않았습니다.',true);return;}copyFrame(v,v.videoWidth,v.videoHeight,true);reviewMode(true);};
+$('capture').onclick=async()=>{if(trace?.blocked)return;await zoomTask;const v=$('video');if(!v.videoWidth){status('카메라 영상이 준비되지 않았습니다.',true);return;}copyFrame(v,v.videoWidth,v.videoHeight,true);reviewMode(true);};
 function setupCameraZoom(){cameraZoom=1;$('video').style.transform='none';$('cameraZoom').value='1';$('cameraZoomValue').textContent='1.0×';const track=stream.getVideoTracks()[0],caps=track.getCapabilities?.()||{};zoomMode=caps.zoom?'native':'digital';$('cameraZoom').min=caps.zoom?.min||1;$('cameraZoom').max=caps.zoom?Math.min(caps.zoom.max,8):4;$('cameraZoom').step=caps.zoom?.step||.1;if(caps.zoom){cameraZoom=track.getSettings().zoom||caps.zoom.min;$('cameraZoom').value=cameraZoom;$('cameraZoomValue').textContent=Number(cameraZoom).toFixed(1)+'×';}$('cameraFrame').style.aspectRatio=$('video').videoWidth+'/'+$('video').videoHeight;$('cameraZoomHelp').textContent=zoomMode==='native'?'기기 카메라 확대를 사용합니다.':'디지털 확대입니다. 화면에 보이는 범위 그대로 촬영하며 원본 해상도가 높아지지는 않습니다.';}
 $('cameraZoom').oninput=()=>{const requested=Number($('cameraZoom').value);$('cameraZoomValue').textContent=requested.toFixed(1)+'×';const track=stream?.getVideoTracks()[0];if(!track)return;zoomTask=zoomTask.then(async()=>{if(track.readyState!=='live')return;try{if(zoomMode==='native')await track.applyConstraints({advanced:[{zoom:requested}]});else $('video').style.transform=`scale(${requested})`;cameraZoom=requested;}catch{status('이 카메라에서 요청한 확대를 적용하지 못했습니다.',true);$('cameraZoom').value=cameraZoom;$('cameraZoomValue').textContent=Number(cameraZoom).toFixed(1)+'×';}});};
 $('file').onchange=async e=>{const file=e.target.files[0];if(!file)return;const url=URL.createObjectURL(file);try{const img=new Image();img.src=url;await img.decode();stopCamera();copyFrame(img,img.naturalWidth,img.naturalHeight);}catch{status('이 사진을 열 수 없습니다. JPG, PNG 또는 WebP 사진을 선택하세요.',true);}finally{URL.revokeObjectURL(url);e.target.value='';}};
@@ -103,6 +103,6 @@ trace=setupTrace({
  getMeasurement(){if(!cells.length||!photoSheet||photoSheet!==trace?.sheet||calibration||analysisKey!==JSON.stringify(config()))return null;const s=summarize(cells);return {sheet:photoSheet,measuredAt,model:$('model').value.trim(),total:s.target,defects:s.empty,actual:s.chips,unsure:s.unsure};},
  async startCamera(){if(!stream)await openCamera(preferredCamera);if(!stream)throw new Error('카메라 권한과 장치 선택을 확인하세요.');reviewMode(false);},
  getFrame(){const v=$('video');if(!stream||!v.videoWidth)return null;const z=zoomMode==='digital'?cameraZoom:1,sw=v.videoWidth/z,sh=v.videoHeight/z,c=document.createElement('canvas'),scale=Math.min(1,1600/Math.max(sw,sh));c.width=Math.max(1,Math.round(sw*scale));c.height=Math.max(1,Math.round(sh*scale));const ctx=c.getContext('2d');ctx.drawImage(v,(v.videoWidth-sw)/2,(v.videoHeight-sh)/2,sw,sh,0,0,c.width,c.height);return ctx.getImageData(0,0,c.width,c.height);},
- onSheet(){photoSheet=null;cells=[];results();draw();},
+ onSheet(){photoSheet=null;cells=[];results();draw();if(stream)reviewMode(false);},
  onScan(){cameraButtons();}
 });
