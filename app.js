@@ -1,5 +1,5 @@
-import {setupTrace} from './trace.js?v=8';
-import {analyze,findSheet,projector,validCorners,summarize,sampleColor,inspectionRows,refinePartialGrid} from './counter.js?v=8';
+import {setupTrace} from './trace.js?v=9';
+import {analyze,findSheet,projector,validCorners,summarize,sampleColor,inspectionRows,refinePartialGrid} from './counter.js?v=9';
 const $=id=>document.getElementById(id),fmt=n=>n.toLocaleString('ko-KR');
 const canvas=$('canvas'),ctx=canvas.getContext('2d'),source=document.createElement('canvas'),sourceCtx=source.getContext('2d',{willReadFrequently:true});
 let trace=null,photoSheet=null,measuredAt=null,analysisKey='';
@@ -102,7 +102,7 @@ new MutationObserver(updateNudgeButtons).observe($('status'),{subtree:true,child
 trace=setupTrace({
  getMeasurement(){if(!cells.length||!photoSheet||photoSheet!==trace?.sheet||calibration||analysisKey!==JSON.stringify(config()))return null;const s=summarize(cells);return {sheet:photoSheet,measuredAt,model:$('model').value.trim(),total:s.target,defects:s.empty,actual:s.chips,unsure:s.unsure};},
  async startCamera(){if(!stream)await openCamera(preferredCamera);if(!stream)throw new Error('카메라 권한과 장치 선택을 확인하세요.');reviewMode(false);},
- getFrame(){const v=$('video');if(!stream||!v.videoWidth)return null;const c=document.createElement('canvas'),scale=Math.min(1,1600/Math.max(v.videoWidth,v.videoHeight));c.width=Math.round(v.videoWidth*scale);c.height=Math.round(v.videoHeight*scale);const ctx=c.getContext('2d');ctx.drawImage(v,0,0,c.width,c.height);return ctx.getImageData(0,0,c.width,c.height);},
+ getFrame(){const v=$('video');if(!stream||!v.videoWidth)return null;const z=zoomMode==='digital'?cameraZoom:1,sw=v.videoWidth/z,sh=v.videoHeight/z,c=document.createElement('canvas'),scale=Math.min(1,1600/Math.max(sw,sh));c.width=Math.max(1,Math.round(sw*scale));c.height=Math.max(1,Math.round(sh*scale));const ctx=c.getContext('2d');ctx.drawImage(v,(v.videoWidth-sw)/2,(v.videoHeight-sh)/2,sw,sh,0,0,c.width,c.height);return ctx.getImageData(0,0,c.width,c.height);},
  onSheet(){photoSheet=null;cells=[];results();draw();},
  onScan(){cameraButtons();}
 });
