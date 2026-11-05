@@ -1,5 +1,5 @@
-import {openRecords,allRecords,findRecord,addRecord,makeWorkbook,normalizeSheet,koreanTime} from './records.js?v=11';
-import {decodeBarcodes,barcodeLibrary} from './barcode.js?v=11';
+import {openRecords,allRecords,findRecord,addRecord,makeWorkbook,normalizeSheet,koreanTime} from './records.js?v=12';
+import {decodeBarcodes,barcodeLibrary} from './barcode.js?v=12';
 export function setupTrace({getMeasurement,startCamera,getFrame,onSheet,onScan}){
  const $=id=>document.getElementById(id);let db=null,current='',saving=false,scanning=false,scanToken=0,refreshToken=0,lockedSheet='',autoEnabled=true,ambiguous=false,pending=false,candidate='',candidateCount=0;
  const say=(text,error=false)=>{$('traceStatus').textContent=text;$('traceStatus').classList.toggle('error',error);};
