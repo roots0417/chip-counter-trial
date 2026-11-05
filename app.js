@@ -1,5 +1,5 @@
-import {setupTrace} from './trace.js?v=10';
-import {analyze,findSheet,projector,validCorners,summarize,sampleColor,inspectionRows,refinePartialGrid} from './counter.js?v=10';
+import {setupTrace} from './trace.js?v=11';
+import {analyze,findSheet,projector,validCorners,summarize,sampleColor,inspectionRows,refinePartialGrid} from './counter.js?v=11';
 const $=id=>document.getElementById(id),fmt=n=>n.toLocaleString('ko-KR');
 const canvas=$('canvas'),ctx=canvas.getContext('2d'),source=document.createElement('canvas'),sourceCtx=source.getContext('2d',{willReadFrequently:true});
 let trace=null,photoSheet=null,measuredAt=null,analysisKey='';
