@@ -23,3 +23,5 @@
 .sheetCodeLabel input{min-width:0}@media(max-width:550px){.sheetCodeLabel input{display:block}}
 
 #deleteRecordConfirm{background:#fff5ed;border:1px solid #d4a88c;border-radius:8px;padding:12px;margin:8px 0}#deleteRecordConfirm p{margin:0 0 8px}#deleteRecordSheet{overflow-wrap:anywhere}#confirmDeleteRecord,.deleteRecord{color:#9d3023;border-color:#ceaaa4}#recordsStatus{font-size:12px;overflow-wrap:anywhere}
+
+.profileActions{display:flex;gap:6px}.profileActions #saveProfile{flex:1;width:auto}.profileActions #deleteProfile{flex:0 0 auto;color:#963b2b}#deleteProfileConfirm{padding:10px;background:#fff5ed;border:1px solid #d4a88c;border-radius:8px;margin-top:8px;font-size:12px}#deleteProfileConfirm p{margin:0 0 8px}#deleteProfileConfirm .help{display:block}#deleteProfileName{overflow-wrap:anywhere}#confirmDeleteProfile{color:#963b2b}

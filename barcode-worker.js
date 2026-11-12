@@ -5,7 +5,7 @@
     if (!library) library = new Promise((resolve, reject) => {
       if (globalThis.ZXing) return resolve(globalThis.ZXing);
       const script = document.createElement("script");
-      script.src = "vendor/zxing.min.js?v=13";
+      script.src = "vendor/zxing.min.js?v=14";
       script.onload = () => resolve(globalThis.ZXing);
       script.onerror = () => {
         library = null;
@@ -130,7 +130,7 @@
 
   // android/barcode-worker-entry.js
   self.globalThis = self;
-  importScripts("vendor/zxing.min.js?v=13");
+  importScripts("vendor/zxing.min.js?v=14");
   self.onmessage = async (e) => {
     const { id, image } = e.data;
     try {

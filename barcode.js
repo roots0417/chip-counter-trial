@@ -1,5 +1,5 @@
 let library;
-export async function barcodeLibrary(){if(!library)library=new Promise((resolve,reject)=>{if(globalThis.ZXing)return resolve(globalThis.ZXing);const script=document.createElement('script');script.src='vendor/zxing.min.js?v=13';script.onload=()=>resolve(globalThis.ZXing);script.onerror=()=>{library=null;script.remove();reject(new Error('바코드 읽기 파일을 불러오지 못했습니다. 새로고침하세요.'));};document.head.append(script);});return library;}
+export async function barcodeLibrary(){if(!library)library=new Promise((resolve,reject)=>{if(globalThis.ZXing)return resolve(globalThis.ZXing);const script=document.createElement('script');script.src='vendor/zxing.min.js?v=14';script.onload=()=>resolve(globalThis.ZXing);script.onerror=()=>{library=null;script.remove();reject(new Error('바코드 읽기 파일을 불러오지 못했습니다. 새로고침하세요.'));};document.head.append(script);});return library;}
 async function decodeOne(image){const z=await barcodeLibrary(),hints=new Map();hints.set(z.DecodeHintType.POSSIBLE_FORMATS,[z.BarcodeFormat.QR_CODE,z.BarcodeFormat.DATA_MATRIX,z.BarcodeFormat.AZTEC,z.BarcodeFormat.PDF_417]);hints.set(z.DecodeHintType.TRY_HARDER,true);const reader=new z.MultiFormatReader();reader.setHints(hints);const {data,width,height}=image,luma=new Uint8ClampedArray(width*height);for(let i=0;i<luma.length;i++){const n=i*4;luma[i]=(data[n]+2*data[n+1]+data[n+2])/4;}const source=new z.RGBLuminanceSource(luma,width,height);
 // RGBLuminanceSource cannot rotate itself. Explicitly try 90 degrees for upright 1D labels.
 const rotated=new Uint8ClampedArray(luma.length);for(let y=0;y<height;y++)for(let x=0;x<width;x++)rotated[x*height+height-1-y]=luma[y*width+x];
@@ -40,7 +40,7 @@ export async function decodeBarcode(image){return (await decodeOne(image))?.text
 let liveWorker=null,liveRequest=0,workerUnavailable=false;
 export async function decodeLiveBarcodes(image){
  if(workerUnavailable||typeof Worker==='undefined')return decodeBarcodes(image);
- try{if(!liveWorker)liveWorker=new Worker('barcode-worker.js?v=13');}catch{workerUnavailable=true;return decodeBarcodes(image);}
+ try{if(!liveWorker)liveWorker=new Worker('barcode-worker.js?v=14');}catch{workerUnavailable=true;return decodeBarcodes(image);}
  const worker=liveWorker,id=++liveRequest;
  return new Promise((resolve,reject)=>{const timer=setTimeout(()=>fail(new Error('바코드 분석 시간이 초과되었습니다.')),12000);function cleanup(){clearTimeout(timer);worker.removeEventListener('message',message);worker.removeEventListener('error',error);}function fail(e){cleanup();worker.terminate();if(liveWorker===worker)liveWorker=null;workerUnavailable=true;reject(e);}function message(e){if(e.data.id!==id)return;cleanup();if(e.data.error)reject(new Error(e.data.error));else resolve(e.data.codes);}function error(){fail(new Error('바코드 분석 작업을 시작하지 못했습니다. 다시 읽어주세요.'));}worker.addEventListener('message',message);worker.addEventListener('error',error);try{worker.postMessage({id,image},[image.data.buffer]);}catch(e){fail(e);}});
 }
